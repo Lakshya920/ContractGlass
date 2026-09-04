@@ -15,12 +15,11 @@ st.set_page_config(
 )
 
 # 2. Initialize Gemini Client
-api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
 if not api_key:
-    st.error("🔑 Gemini API Key not found in Environment Variables! Please set GEMINI_API_KEY or GOOGLE_API_KEY.")
+    st.error("🔑 Gemini API Key not found in Environment Variables or Streamlit Secrets! Please set GEMINI_API_KEY.")
     st.stop()
 
-# Updated initialization syntax for the latest google-genai library
 client = genai.Client(api_key=api_key)
 
 # 3. Define Structured JSON Output Schema using Pydantic
@@ -185,6 +184,8 @@ if "previous_file_name" not in st.session_state:
     st.session_state.previous_file_name = None
 if "email_draft" not in st.session_state:
     st.session_state.email_draft = None
+if "contract_id" not in st.session_state:
+    st.session_state.contract_id = 0
 
 # Sidebar Controls
 st.sidebar.header("📁 Document Settings")
@@ -200,12 +201,14 @@ st.sidebar.subheader("💡 Demo Quick-Load Contracts")
 selected_demo = st.sidebar.selectbox("Choose a Predatory Scenario", list(MOCK_CONTRACTS.keys()))
 use_demo = st.sidebar.button("✨ Load Selected Scenario")
 
-# FIX 1: Smart File Input & Demo Toggle Handling
+# Handlers: Update text, bump version ID, and rerun
 if use_demo:
     st.session_state.active_contract_text = MOCK_CONTRACTS[selected_demo]
     st.session_state.analysis_result = None
     st.session_state.email_draft = None
     st.session_state.previous_file_name = None
+    st.session_state.contract_id += 1
+    st.rerun()
 elif uploaded_file is not None and uploaded_file.name != st.session_state.previous_file_name:
     with st.spinner("Extracting text from PDF..."):
         extracted_text = extract_text_from_pdf(uploaded_file)
@@ -214,6 +217,8 @@ elif uploaded_file is not None and uploaded_file.name != st.session_state.previo
         st.session_state.analysis_result = None
         st.session_state.email_draft = None
         st.session_state.previous_file_name = uploaded_file.name
+        st.session_state.contract_id += 1
+        st.rerun()
 
 # 6b. Main Content Area
 col1, col2 = st.columns([1, 1])
@@ -221,15 +226,17 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("📄 Contract Preview")
     if st.session_state.active_contract_text:
-        st.text_area(
+        # Dynamic key forces the widget to refresh cleanly whenever a new scenario/file loads
+        contract_input = st.text_area(
             "Document Content",
-            st.session_state.active_contract_text,
+            value=st.session_state.active_contract_text,
             height=400,
-            key="preview_area"
+            key=f"preview_area_{st.session_state.contract_id}"
         )
         if st.button("🔍 Analyze Contract", type="primary", use_container_width=True):
             with st.spinner("Analyzing contract with Gemini... this may take a moment."):
-                result = analyze_contract_with_gemini(st.session_state.active_contract_text, contract_type)
+                # Uses the current text area content (including any manual edits)
+                result = analyze_contract_with_gemini(contract_input, contract_type)
             if result:
                 st.session_state.analysis_result = result
                 st.session_state.email_draft = None
